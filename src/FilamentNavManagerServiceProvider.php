@@ -1,6 +1,6 @@
 <?php
 
-namespace VendorName\Skeleton;
+namespace Ycookies\FilamentNavManager;
 
 use Filament\Support\Assets\AlpineComponent;
 use Filament\Support\Assets\Asset;
@@ -13,14 +13,16 @@ use Livewire\Features\SupportTesting\Testable;
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use VendorName\Skeleton\Commands\SkeletonCommand;
-use VendorName\Skeleton\Testing\TestsSkeleton;
+use Ycookies\FilamentNavManager\Commands\FilamentNavManagerCommand;
+use Ycookies\FilamentNavManager\Commands\InstallCommand as NavManagerInstallCommand;
+use Ycookies\FilamentNavManager\Commands\SyncPanelCommand;
+use Ycookies\FilamentNavManager\Testing\TestsFilamentNavManager;
 
-class SkeletonServiceProvider extends PackageServiceProvider
+class FilamentNavManagerServiceProvider extends PackageServiceProvider
 {
-    public static string $name = 'skeleton';
+    public static string $name = 'filament-nav-manager';
 
-    public static string $viewNamespace = 'skeleton';
+    public static string $viewNamespace = 'filament-nav-manager';
 
     public function configurePackage(Package $package): void
     {
@@ -36,13 +38,21 @@ class SkeletonServiceProvider extends PackageServiceProvider
                     ->publishConfigFile()
                     ->publishMigrations()
                     ->askToRunMigrations()
-                    ->askToStarRepoOnGitHub(':vendor_slug/:package_slug');
+                    ->endWith(function (InstallCommand $command) {
+                        // After migrations, ask which panels to sync
+                        $command->newLine();
+                        $command->info('📋 Sync Filament Resources and Pages');
+                        $command->comment('You can sync panels now by running: php artisan filament-nav-manager:sync {panel-id}');
+                        $command->newLine();
+                    })
+                    ->askToStarRepoOnGitHub('ycookies/filament-nav-manager');
             });
 
-        $configFileName = $package->shortName();
-
+        // Explicitly specify config file name since it's 'nav-manager.php' not 'filament-nav-manager.php'
+        $configFileName = 'nav-manager';
+        
         if (file_exists($package->basePath("/../config/{$configFileName}.php"))) {
-            $package->hasConfigFile();
+            $package->hasConfigFile($configFileName);
         }
 
         if (file_exists($package->basePath('/../database/migrations'))) {
@@ -80,18 +90,18 @@ class SkeletonServiceProvider extends PackageServiceProvider
         if (app()->runningInConsole()) {
             foreach (app(Filesystem::class)->files(__DIR__ . '/../stubs/') as $file) {
                 $this->publishes([
-                    $file->getRealPath() => base_path("stubs/skeleton/{$file->getFilename()}"),
-                ], 'skeleton-stubs');
+                    $file->getRealPath() => base_path("stubs/filament-nav-manager/{$file->getFilename()}"),
+                ], 'filament-nav-manager-stubs');
             }
         }
 
         // Testing
-        Testable::mixin(new TestsSkeleton);
+        Testable::mixin(new TestsFilamentNavManager);
     }
 
     protected function getAssetPackageName(): ?string
     {
-        return ':vendor_slug/:package_slug';
+        return 'ycookies/filament-nav-manager';
     }
 
     /**
@@ -99,11 +109,21 @@ class SkeletonServiceProvider extends PackageServiceProvider
      */
     protected function getAssets(): array
     {
-        return [
-            // AlpineComponent::make('skeleton', __DIR__ . '/../resources/dist/components/skeleton.js'),
-            Css::make('skeleton-styles', __DIR__ . '/../resources/dist/skeleton.css'),
-            Js::make('skeleton-scripts', __DIR__ . '/../resources/dist/skeleton.js'),
-        ];
+        // Only register assets if dist files exist
+        $assets = [];
+        
+        $cssPath = __DIR__ . '/../resources/dist/filament-nav-manager.css';
+        $jsPath = __DIR__ . '/../resources/dist/filament-nav-manager.js';
+        
+        if (file_exists($cssPath)) {
+            $assets[] = Css::make('filament-nav-manager-styles', $cssPath);
+        }
+        
+        if (file_exists($jsPath)) {
+            $assets[] = Js::make('filament-nav-manager-scripts', $jsPath);
+        }
+        
+        return $assets;
     }
 
     /**
@@ -112,7 +132,9 @@ class SkeletonServiceProvider extends PackageServiceProvider
     protected function getCommands(): array
     {
         return [
-            SkeletonCommand::class,
+            FilamentNavManagerCommand::class,
+            NavManagerInstallCommand::class,
+            SyncPanelCommand::class,
         ];
     }
 
@@ -146,7 +168,7 @@ class SkeletonServiceProvider extends PackageServiceProvider
     protected function getMigrations(): array
     {
         return [
-            'create_skeleton_table',
+            'create_nav_manager_table',
         ];
     }
 }

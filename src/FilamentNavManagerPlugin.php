@@ -1,20 +1,22 @@
 <?php
 
-namespace VendorName\Skeleton;
+namespace Ycookies\FilamentNavManager;
 
 use Filament\Contracts\Plugin;
 use Filament\Panel;
 
-class SkeletonPlugin implements Plugin
+class FilamentNavManagerPlugin implements Plugin
 {
     public function getId(): string
     {
-        return 'skeleton';
+        return 'filament-nav-manager';
     }
 
     public function register(Panel $panel): void
     {
-        //
+        $panel->resources([
+            \Ycookies\FilamentNavManager\Resources\NavManagerResource::class,
+        ]);
     }
 
     public function boot(Panel $panel): void

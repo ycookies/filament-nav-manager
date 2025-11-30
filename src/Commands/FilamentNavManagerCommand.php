@@ -1,12 +1,12 @@
 <?php
 
-namespace VendorName\Skeleton\Commands;
+namespace Ycookies\FilamentNavManager\Commands;
 
 use Illuminate\Console\Command;
 
-class SkeletonCommand extends Command
+class FilamentNavManagerCommand extends Command
 {
-    public $signature = 'skeleton';
+    public $signature = 'filament-nav-manager';
 
     public $description = 'My command';
 
