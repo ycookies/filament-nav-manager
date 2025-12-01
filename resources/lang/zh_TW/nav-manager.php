@@ -51,7 +51,8 @@ return [
     ],
 
     'actions' => [
-        'sync'             => '同步 Filament 選單',
+        'create'           => '添加導航選單',
+        'sync'             => '同步 Filament 導航選單',
         'sync_description' => '這將同步所有 Filament 資源、頁面和導航組到選單資料庫。已存在的選單將被更新。',
         'sync_success'     => '成功同步 :count 個選單項目',
         'sync_error'       => '同步選單失敗',

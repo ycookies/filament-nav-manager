@@ -10,12 +10,12 @@ return [
 
     'resource' => [
         'label'          => '导航管理',
-        'plural_label'   => '导航项',
-        'singular_label' => '导航项',
+        'plural_label'   => '导航管理',
+        'singular_label' => '导航管理',
     ],
 
     'table' => [
-        'title'        => '标题',
+        'title'        => '菜单名称',
         'type'         => '类型',
         'icon'         => '图标',
         'panel'        => '面板',
@@ -51,7 +51,8 @@ return [
     ],
 
     'actions' => [
-        'sync'             => '同步 Filament 菜单',
+        'create'           => '添加导航菜单',
+        'sync'             => '同步 Filament 导航菜单',
         'sync_description' => '这将同步所有 Filament 资源、页面和导航组到菜单数据库。已存在的菜单将被更新。',
         'sync_success'     => '成功同步 :count 个菜单项',
         'sync_error'       => '同步菜单失败',

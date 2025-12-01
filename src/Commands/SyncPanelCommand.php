@@ -5,6 +5,7 @@ namespace Ycookies\FilamentNavManager\Commands;
 use Filament\Facades\Filament;
 use Illuminate\Console\Command;
 use Ycookies\FilamentNavManager\Models\NavManager;
+use Ycookies\FilamentNavManager\NavManagerNavigationGenerator;
 
 class SyncPanelCommand extends Command
 {
@@ -32,6 +33,23 @@ class SyncPanelCommand extends Command
 
         try {
             $syncedCount = NavManager::syncPanel($panel);
+            
+            // Clear navigation cache
+            NavManagerNavigationGenerator::flush($panel->getId());
+            
+            // Clear Laravel caches to avoid route not found errors
+            $this->info('Clearing caches...');
+            try {
+                $this->call('config:clear');
+                $this->call('route:clear');
+                $this->call('view:clear');
+                $this->call('route:cache');
+                $this->info('✓ Caches cleared successfully.');
+            } catch (\Throwable $cacheError) {
+                $this->warn('⚠ Failed to clear some caches: ' . $cacheError->getMessage());
+                // Continue even if cache clearing fails
+            }
+            
             $this->info("✓ Successfully synced {$syncedCount} items.");
             return self::SUCCESS;
         } catch (\Throwable $e) {

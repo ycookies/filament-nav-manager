@@ -11,6 +11,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Ycookies\FilamentNavManager\Models\NavManager;
+use Guava\IconPicker\Forms\Components\IconPicker;
 
 class NavManagerForm
 {
@@ -62,11 +63,10 @@ class NavManagerForm
                                     ->default(NavManager::TYPE_ROUTE)
                                     ->required()
                                     ->live(),
-
-                                TextInput::make('icon')
-                                    ->label(__('nav-manager::nav-manager.form.icon') ?: 'Icon')
-                                    ->placeholder('heroicon-o-bars-3')
-                                    ->hint('Heroicon name (e.g., heroicon-o-bars-3)'),
+                                    IconPicker::make('icon')
+                                    ->label('图标')
+                                    ->gridSearchResults()
+                                    ->iconsSearchResults(false),
                             ])
                             ->columns(2),
                     ]),

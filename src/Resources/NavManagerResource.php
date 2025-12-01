@@ -16,11 +16,12 @@ use Ycookies\FilamentNavManager\Resources\NavManagerResource\Pages\ListNavManage
 use Ycookies\FilamentNavManager\Resources\NavManagerResource\Schemas\NavManagerForm;
 use Ycookies\FilamentNavManager\Resources\NavManagerResource\Tables\NavManagersTable;
 
+
 class NavManagerResource extends Resource
 {
     protected static ?string $model = NavManager::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBars3;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
     protected static ?string $recordTitleAttribute = 'title';
 
@@ -33,6 +34,8 @@ class NavManagerResource extends Resource
     protected static string | UnitEnum | null $navigationGroup = null;
 
     protected static ?int $navigationSort = null;
+
+    protected static bool $shouldRegisterNavigation = true;
 
     public static function getNavigationLabel(): string
     {
@@ -72,10 +75,19 @@ class NavManagerResource extends Resource
     }
 
     /**
-     * Check if the resource should be registered in navigation.
+     * Check if the current user can access this resource.
+     * This controls actual access permissions based on allowed_roles config.
+     */
+    public static function canAccess(): bool
+    {
+        return static::canViewAny();
+    }
+
+    /**
+     * Check if the current user can view any records.
      * Based on allowed_roles config.
      */
-    public static function shouldRegisterNavigation(): bool
+    public static function canViewAny(): bool
     {
         // Check if user is authenticated
         if (!Filament::auth()?->check()) {
@@ -91,14 +103,20 @@ class NavManagerResource extends Resource
 
         $user = Filament::auth()->user();
 
+        if (!$user) {
+            return false;
+        }
+
         // Check if user has any of the allowed roles
         // Support both Spatie Permission package and simple role checking
         if (method_exists($user, 'hasAnyRole')) {
+            // @phpstan-ignore-next-line
             return $user->hasAnyRole($allowedRoles);
         }
 
         if (method_exists($user, 'hasRole')) {
             foreach ((array) $allowedRoles as $role) {
+                // @phpstan-ignore-next-line
                 if ($user->hasRole($role)) {
                     return true;
                 }
@@ -107,6 +125,7 @@ class NavManagerResource extends Resource
 
         // Check role attribute if exists
         if (property_exists($user, 'role') || method_exists($user, 'getRole')) {
+            // @phpstan-ignore-next-line
             $userRole = method_exists($user, 'getRole') ? $user->getRole() : $user->role;
             if (in_array($userRole, (array) $allowedRoles, true)) {
                 return true;
@@ -114,14 +133,6 @@ class NavManagerResource extends Resource
         }
 
         return false;
-    }
-
-    /**
-     * Check if the current user can view any records.
-     */
-    public static function canViewAny(): bool
-    {
-        return static::shouldRegisterNavigation();
     }
 
     public static function form(Schema $schema): Schema

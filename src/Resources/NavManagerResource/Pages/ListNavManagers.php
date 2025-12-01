@@ -7,6 +7,8 @@ use Filament\Actions\CreateAction;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 use Ycookies\FilamentNavManager\Models\NavManager;
 use Ycookies\FilamentNavManager\NavManagerNavigationGenerator;
 use Ycookies\FilamentNavManager\Resources\NavManagerResource;
@@ -18,13 +20,14 @@ class ListNavManagers extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            CreateAction::make(),
+            CreateAction::make()
+                ->label(__('nav-manager::nav-manager.actions.create') ?: '添加导航菜单'),
             Action::make('sync')
-                ->label(__('nav-manager::nav-manager.actions.sync') ?: 'Sync Filament Menu')
+                ->label(__('nav-manager::nav-manager.actions.sync') ?: 'Sync Filament Nav Menu')
                 ->icon('heroicon-o-arrow-path')
                 ->color('success')
                 ->requiresConfirmation()
-                ->modalHeading(__('nav-manager::nav-manager.actions.sync') ?: 'Sync Filament Menu')
+                ->modalHeading(__('nav-manager::nav-manager.actions.sync') ?: 'Sync Filament Nav Menu')
                 ->modalDescription(__('nav-manager::nav-manager.actions.sync_description') ?: 'This will sync all Filament resources, pages and navigation groups to the menu database. Existing menus will be updated.')
                 ->action(function () {
                     $this->syncFilamentMenus();
@@ -51,6 +54,17 @@ class ListNavManagers extends ListRecords
 
             // Clear navigation cache
             NavManagerNavigationGenerator::flush($panel->getId());
+
+            // Clear Laravel caches to avoid route not found errors
+            try {
+                Artisan::call('config:clear');
+                Artisan::call('route:clear');
+                Artisan::call('view:clear');
+                Artisan::call('route:cache');
+            } catch (\Throwable $cacheError) {
+                // Log cache clearing errors but don't fail the sync
+                Log::warning('Failed to clear caches after nav sync: ' . $cacheError->getMessage());
+            }
 
             Notification::make()
                 ->title(__('nav-manager::nav-manager.actions.sync_success') ?: 'Sync Complete')

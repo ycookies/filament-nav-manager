@@ -2,9 +2,10 @@
 
 namespace Ycookies\FilamentNavManager\Resources\NavManagerResource\Tables;
 
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
+use BladeUI\Icons\Factory as IconFactory;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\EditAction;
+use Filament\Actions\DeleteAction;
 use Filament\Facades\Filament;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -14,6 +15,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\HtmlString;
 use Livewire\Component;
 use Ycookies\FilamentNavManager\Models\NavManager;
@@ -65,19 +67,19 @@ class NavManagersTable
 
                 IconColumn::make('icon')
                     ->label(__('nav-manager::nav-manager.table.icon') ?: 'Icon')
-                    ->icon(fn (?string $state) => filled($state) ? $state : null)
-                    ->color('primary'),
+                    ->icon(fn (?string $state) => self::validateIcon($state))
+                    ->color('gray'),
 
                 TextColumn::make('type')
                     ->label(__('nav-manager::nav-manager.table.type') ?: 'Type')
                     ->badge()
                     ->formatStateUsing(fn (?string $state): string => match ($state) {
-                        NavManager::TYPE_GROUP => __('nav-manager::nav-manager.types.group') ?: 'Group',
+                        NavManager::TYPE_GROUP    => __('nav-manager::nav-manager.types.group') ?: 'Group',
                         NavManager::TYPE_RESOURCE => __('nav-manager::nav-manager.types.resource') ?: 'Resource',
-                        NavManager::TYPE_PAGE => __('nav-manager::nav-manager.types.page') ?: 'Page',
-                        NavManager::TYPE_ROUTE => __('nav-manager::nav-manager.types.route') ?: 'Route',
-                        NavManager::TYPE_URL => __('nav-manager::nav-manager.types.url') ?: 'URL',
-                        default => 'Unknown',
+                        NavManager::TYPE_PAGE     => __('nav-manager::nav-manager.types.page') ?: 'Page',
+                        NavManager::TYPE_ROUTE    => __('nav-manager::nav-manager.types.route') ?: 'Route',
+                        NavManager::TYPE_URL      => __('nav-manager::nav-manager.types.url') ?: 'URL',
+                        default                   => 'Unknown',
                     }),
 
                 TextColumn::make('target')
@@ -141,11 +143,11 @@ class NavManagersTable
                 SelectFilter::make('type')
                     ->label(__('nav-manager::nav-manager.table.type') ?: 'Type')
                     ->options([
-                        NavManager::TYPE_GROUP => __('nav-manager::nav-manager.types.group') ?: 'Group',
+                        NavManager::TYPE_GROUP    => __('nav-manager::nav-manager.types.group') ?: 'Group',
                         NavManager::TYPE_RESOURCE => __('nav-manager::nav-manager.types.resource') ?: 'Resource',
-                        NavManager::TYPE_PAGE => __('nav-manager::nav-manager.types.page') ?: 'Page',
-                        NavManager::TYPE_ROUTE => __('nav-manager::nav-manager.types.route') ?: 'Route',
-                        NavManager::TYPE_URL => __('nav-manager::nav-manager.types.url') ?: 'URL',
+                        NavManager::TYPE_PAGE     => __('nav-manager::nav-manager.types.page') ?: 'Page',
+                        NavManager::TYPE_ROUTE    => __('nav-manager::nav-manager.types.route') ?: 'Route',
+                        NavManager::TYPE_URL      => __('nav-manager::nav-manager.types.url') ?: 'URL',
                     ]),
 
                 TernaryFilter::make('show')
@@ -161,14 +163,113 @@ class NavManagersTable
                     ->preload(),
             ], layout: FiltersLayout::AboveContentCollapsible)
             ->defaultSort('order', 'asc')
+            ->selectable(false)
             ->recordActions([
-                EditAction::make(),
-            ])
-            ->bulkActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                ActionGroup::make([
+                    EditAction::make()
+                        ->after(function (Component $livewire) {
+                            NavManager::flushNavigationCache();
+                            $livewire->dispatch('refresh-sidebar');
+                        }),
+                    DeleteAction::make()
+                        ->after(function (Component $livewire) {
+                            NavManager::flushNavigationCache();
+                            $livewire->dispatch('refresh-sidebar');
+                        }),
                 ]),
             ]);
+    }
+
+    /**
+     * Validate if an icon exists and return it, or return null if invalid.
+     * This prevents SvgNotFound exceptions when invalid icon names are stored in the database.
+     * 
+     * Handles incomplete icon names (e.g., 'cube-transparent') by trying multiple formats:
+     * - heroicon-o-{name} (outlined)
+     * - heroicon-m-{name} (medium)
+     * - heroicon-c-{name} (mini)
+     * - heroicon-s-{name} (solid)
+     *
+     * @param string|null $icon
+     * @return string|null
+     */
+    protected static function validateIcon(?string $icon): ?string
+    {
+        if (blank($icon)) {
+            return null;
+        }
+
+        // If icon already has heroicon- prefix but missing variant (e.g., heroicon-cube-transparent)
+        // Try to fix it by trying common variants
+        if (str_starts_with($icon, 'heroicon-') && !preg_match('/^heroicon-[ocms]-/', $icon)) {
+            $baseName = str_replace('heroicon-', '', $icon);
+            $variants = ['o-', 'm-', 'c-', 's-'];
+            
+            foreach ($variants as $variant) {
+                $testIcon = "heroicon-{$variant}{$baseName}";
+                if (self::tryResolveIcon($testIcon)) {
+                    return $testIcon;
+                }
+            }
+            
+            // If no variant works, return null
+            if (config('app.debug')) {
+                Log::warning("Table icon format invalid (missing variant): {$icon}");
+            }
+            return null;
+        }
+
+        // If icon doesn't have heroicon- prefix, add it and try common variants
+        if (!str_starts_with($icon, 'heroicon-')) {
+            $variants = ['o-', 'm-', 'c-', 's-'];
+            
+            foreach ($variants as $variant) {
+                $testIcon = "heroicon-{$variant}{$icon}";
+                if (self::tryResolveIcon($testIcon)) {
+                    return $testIcon;
+                }
+            }
+            
+            // If no variant works, return null
+            if (config('app.debug')) {
+                Log::warning("Table icon not found (tried variants): {$icon}");
+            }
+            return null;
+        }
+
+        // Icon already has correct format, just validate it exists
+        if (self::tryResolveIcon($icon)) {
+            return $icon;
+        }
+
+        // Icon doesn't exist
+        if (config('app.debug')) {
+            Log::warning("Table icon not found: {$icon}");
+        }
+        return null;
+    }
+
+    /**
+     * Try to resolve an icon and return true if it exists, false otherwise.
+     *
+     * @param string $icon
+     * @return bool
+     */
+    protected static function tryResolveIcon(string $icon): bool
+    {
+        try {
+            if (function_exists('svg')) {
+                svg($icon);
+            } else {
+                $iconFactory = app(IconFactory::class);
+                $iconFactory->svg($icon);
+            }
+            return true;
+        } catch (\BladeUI\Icons\Exceptions\SvgNotFound $e) {
+            return false;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }
 

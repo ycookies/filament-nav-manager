@@ -2,6 +2,8 @@
 
 namespace Ycookies\FilamentNavManager\Models;
 
+use BladeUI\Icons\Factory as IconFactory;
+use Closure;
 use Filament\Facades\Filament;
 use Filament\Panel;
 use Filament\Navigation\NavigationGroup;
@@ -14,6 +16,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use function Filament\Support\original_request;
@@ -280,10 +283,69 @@ class NavManager extends Model
         $panelPath = $panel->getPath();
 
         try {
-            $resources = $panel->getResources();
-            $pages     = $panel->getPages();
+            // Get all resources and pages, including those with isDiscovered = false
+            // We need to manually scan the discovery directories because Filament skips
+            // resources/pages with isDiscovered = false during discovery
+            
+            $resources = [];
+            $pages     = [];
+            
+            // Get manually registered resources/pages (from ->resources() and ->pages() methods)
+            $registeredResources = $panel->getResources();
+            $registeredPages     = $panel->getPages();
+            
+            // Get discovery directories and namespaces from Panel
+            $resourceDirectories = $panel->getResourceDirectories();
+            $resourceNamespaces  = $panel->getResourceNamespaces();
+            $pageDirectories     = $panel->getPageDirectories();
+            $pageNamespaces      = $panel->getPageNamespaces();
+            
+            // Scan discovery directories to find all resources/pages (including isDiscovered = false)
+            $filesystem = app(\Illuminate\Filesystem\Filesystem::class);
+            
+            // Discover all resources from directories
+            foreach ($resourceDirectories as $index => $directory) {
+                $namespace = $resourceNamespaces[$index] ?? null;
+                if (!$namespace || !$filesystem->exists($directory)) {
+                    continue;
+                }
+                
+                $discoveredResources = static::discoverClassesInDirectory(
+                    $filesystem,
+                    $directory,
+                    $namespace,
+                    FilamentResource::class
+                );
+                $resources = array_merge($resources, $discoveredResources);
+            }
+            
+            // Discover all pages from directories
+            foreach ($pageDirectories as $index => $directory) {
+                $namespace = $pageNamespaces[$index] ?? null;
+                if (!$namespace || !$filesystem->exists($directory)) {
+                    continue;
+                }
+                
+                $discoveredPages = static::discoverClassesInDirectory(
+                    $filesystem,
+                    $directory,
+                    $namespace,
+                    FilamentPage::class
+                );
+                $pages = array_merge($pages, $discoveredPages);
+            }
+            
+            // Merge with manually registered resources/pages
+            $resources = array_unique(array_merge($resources, $registeredResources));
+            $pages     = array_unique(array_merge($pages, $registeredPages));
         } catch (\Throwable $e) {
-            throw new \RuntimeException('Failed to get panel resources and pages: ' . $e->getMessage());
+            // Fallback to getResources() and getPages() if discovery fails
+            try {
+                $resources = $panel->getResources();
+                $pages     = $panel->getPages();
+            } catch (\Throwable $e2) {
+                throw new \RuntimeException('Failed to get panel resources and pages: ' . $e->getMessage());
+            }
         }
 
         // Collect navigation groups
@@ -308,6 +370,14 @@ class NavManager extends Model
             }
         }
 
+        // Set panel context for icon retrieval
+        $originalPanel = Filament::getCurrentPanel();
+        try {
+            Filament::setCurrentPanel($panel);
+        } catch (\Throwable $e) {
+            // Silently fail if we can't set panel context
+        }
+
         // Create navigation groups
         $sortedGroups = collect($groupOrderMap)
             ->sortBy(fn($order) => $order)
@@ -317,14 +387,29 @@ class NavManager extends Model
 
         foreach ($sortedGroups as $groupTitle) {
             $groupOrder = $groupOrderMap[$groupTitle];
-            $groupMenu  = static::updateOrCreate(
-                [
+            
+            // 使用 title + type + panel 查找现有导航组（增量更新）
+            $existingGroup = static::where('title', $groupTitle)
+                ->where('parent_id', 0)
+                ->where('type', static::TYPE_GROUP)
+                ->where('panel', $panelId)
+                ->first();
+
+            if ($existingGroup) {
+                // 导航组已存在，保留原有排序，只更新其他字段
+                $existingGroup->update([
+                    'icon'      => null,
+                    'uri'       => '#',
+                    'extension' => 'filament',
+                    'show'      => 1,
+                    // 不更新 order，保留用户设置的排序
+                ]);
+                $groupMenu = $existingGroup;
+            } else {
+                // 导航组不存在，创建新记录
+                $groupMenu = static::create([
                     'title'     => $groupTitle,
                     'parent_id' => 0,
-                    'type'      => static::TYPE_GROUP,
-                    'panel'     => $panelId,
-                ],
-                [
                     'order'     => $groupOrder,
                     'icon'      => null,
                     'uri'       => '#',
@@ -332,8 +417,9 @@ class NavManager extends Model
                     'show'      => 1,
                     'type'      => static::TYPE_GROUP,
                     'panel'     => $panelId,
-                ]
-            );
+                ]);
+            }
+            
             $groupMap[$groupTitle] = $groupMenu->id;
         }
 
@@ -342,16 +428,18 @@ class NavManager extends Model
         // Sync resources
         foreach ($resources as $resource) {
             if (is_string($resource) && class_exists($resource) && is_subclass_of($resource, FilamentResource::class)) {
-                static::syncResource($resource, $groupMap, $order++, $panelId, $panelPath);
-                $syncedCount++;
+                if (static::syncResource($resource, $groupMap, $order++, $panelId, $panelPath)) {
+                    $syncedCount++;
+                }
             }
         }
 
         // Sync pages
         foreach ($pages as $page) {
             if (is_string($page) && class_exists($page) && is_subclass_of($page, FilamentPage::class)) {
-                static::syncPage($page, $groupMap, $order++, $panelId, $panelPath);
-                $syncedCount++;
+                if (static::syncPage($page, $groupMap, $order++, $panelId, $panelPath, $panel)) {
+                    $syncedCount++;
+                }
             }
         }
 
@@ -360,7 +448,7 @@ class NavManager extends Model
         return $syncedCount;
     }
 
-    protected static function syncResource(string $resource, array $groupMap, int $order, ?string $panelId = null, string $panelPath = 'admin'): void
+    protected static function syncResource(string $resource, array $groupMap, int $order, ?string $panelId = null, string $panelPath = 'admin'): bool
     {
         $label = method_exists($resource, 'getNavigationLabel')
             ? $resource::getNavigationLabel()
@@ -379,17 +467,39 @@ class NavManager extends Model
 
         $uri = $slug ? "{$panelPath}/{$slug}" : '#';
 
+        // 如果 isDiscovered = false，跳过同步，不添加到数据库
         $isDiscovered = method_exists($resource, 'isDiscovered') ? $resource::isDiscovered() : true;
-        $show         = $isDiscovered ? 1 : 0;
+        if (!$isDiscovered) {
+            return false;
+        }
 
-        static::updateOrCreate(
-            [
-                'title' => $label,
-                'uri'   => $uri,
-                'type'  => static::TYPE_RESOURCE,
-                'panel' => $panelId,
-            ],
-            [
+        // 检查 shouldRegisterNavigation，决定 show 的值
+        $shouldRegisterNavigation = method_exists($resource, 'shouldRegisterNavigation') 
+            ? $resource::shouldRegisterNavigation() 
+            : true;
+        $show = $shouldRegisterNavigation ? 1 : 0;
+
+        // 使用 target 字段查找现有记录（更准确），实现增量更新
+        $existing = static::where('target', $resource)
+            ->where('type', static::TYPE_RESOURCE)
+            ->where('panel', $panelId)
+            ->first();
+
+        if ($existing) {
+            // 记录已存在，保留原有排序，只更新其他字段
+            $existing->update([
+                'title'     => $label,
+                'parent_id' => $parentId,
+                'icon'      => $icon,
+                'uri'       => $uri,
+                'extension' => 'filament',
+                'show'      => $show,
+                // 不更新 order，保留用户设置的排序
+            ]);
+        } else {
+            // 记录不存在，创建新记录
+            static::create([
+                'title'     => $label,
                 'parent_id' => $parentId,
                 'order'     => $sort,
                 'icon'      => $icon,
@@ -399,18 +509,20 @@ class NavManager extends Model
                 'extension' => 'filament',
                 'show'      => $show,
                 'panel'     => $panelId,
-            ]
-        );
+            ]);
+        }
+        
+        return true;
     }
 
-    protected static function syncPage(string $page, array $groupMap, int $order, ?string $panelId = null, string $panelPath = 'admin'): void
+    protected static function syncPage(string $page, array $groupMap, int $order, ?string $panelId = null, string $panelPath = 'admin', ?\Filament\Panel $panel = null): bool
     {
         $label = method_exists($page, 'getNavigationLabel')
             ? $page::getNavigationLabel()
             : (method_exists($page, 'getTitle')
                 ? $page::getTitle()
                 : class_basename($page));
-        $icon  = static::getPageIcon($page);
+        $icon  = static::getPageIcon($page, $panel);
         $group = method_exists($page, 'getNavigationGroup') ? $page::getNavigationGroup() : null;
         $sort  = method_exists($page, 'getNavigationSort') ? ($page::getNavigationSort() ?? $order) : $order;
         $slug  = method_exists($page, 'getSlug') ? $page::getSlug() : null;
@@ -422,17 +534,51 @@ class NavManager extends Model
 
         $uri = $slug ? "{$panelPath}/{$slug}" : '#';
 
+        // 如果 isDiscovered = false，跳过同步，不添加到数据库
         $isDiscovered = method_exists($page, 'isDiscovered') ? $page::isDiscovered() : true;
-        $show         = $isDiscovered ? 1 : 0;
+        if (!$isDiscovered) {
+            return false;
+        }
 
-        static::updateOrCreate(
-            [
-                'title' => $label,
-                'uri'   => $uri,
-                'type'  => static::TYPE_PAGE,
-                'panel' => $panelId,
-            ],
-            [
+        // 检查 shouldRegisterNavigation，决定 show 的值
+        $shouldRegisterNavigation = true; // 默认值
+        if (method_exists($page, 'shouldRegisterNavigation')) {
+            try {
+                // 尝试无参数调用（普通 Page）
+                $shouldRegisterNavigation = $page::shouldRegisterNavigation();
+            } catch (\Throwable $e) {
+                // 如果失败，尝试带空数组参数（Resource Page）
+                try {
+                    $shouldRegisterNavigation = $page::shouldRegisterNavigation([]);
+                } catch (\Throwable $e2) {
+                    // 如果都失败，默认为 true
+                    $shouldRegisterNavigation = true;
+                }
+            }
+        }
+        $show = $shouldRegisterNavigation ? 1 : 0;
+
+        // 使用 target 字段查找现有记录（更准确），实现增量更新
+        $existing = static::where('target', $page)
+            ->where('type', static::TYPE_PAGE)
+            ->where('panel', $panelId)
+            ->first();
+
+        if ($existing) {
+            // 记录已存在，保留原有排序，只更新其他字段
+            $existing->update([
+                'title'     => $label,
+                'parent_id' => $parentId,
+                'icon'      => $icon,
+                'uri'       => $uri,
+                'extension' => 'filament',
+                'show'      => $show,
+                // 不更新 order，保留用户设置的排序
+            ]);
+        } else {
+            // 记录不存在，创建新记录
+            static::create([
+                'title'     => $label,
                 'parent_id' => $parentId,
                 'order'     => $sort,
                 'icon'      => $icon,
@@ -442,8 +588,10 @@ class NavManager extends Model
                 'extension' => 'filament',
                 'show'      => $show,
                 'panel'     => $panelId,
-            ]
-        );
+            ]);
+        }
+        
+        return true;
     }
 
     protected static function getResourceIcon(string $resource): ?string
@@ -465,16 +613,53 @@ class NavManager extends Model
         return static::normalizeIcon($icon);
     }
 
-    protected static function getPageIcon(string $page): ?string
+    protected static function getPageIcon(string $page, ?\Filament\Panel $panel = null): ?string
     {
         if (!method_exists($page, 'getNavigationIcon')) {
             return null;
         }
 
         try {
+            // Try to set panel context if provided, so getNavigationIcon() can work properly
+            $originalPanel = null;
+            if ($panel) {
+                try {
+                    $originalPanel = Filament::getCurrentPanel();
+                    Filament::setCurrentPanel($panel);
+                } catch (\Throwable $e) {
+                    // Silently fail if we can't set panel context
+                }
+            }
+
             $icon = $page::getNavigationIcon();
+
+            // Restore original panel context
+            if ($panel && $originalPanel !== null) {
+                try {
+                    Filament::setCurrentPanel($originalPanel);
+                } catch (\Throwable $e) {
+                    // Silently fail
+                }
+            }
         } catch (\Throwable $e) {
-            return null;
+            // If getNavigationIcon() fails, try to get icon from static property directly
+            if (property_exists($page, 'navigationIcon')) {
+                $reflection = new \ReflectionClass($page);
+                $property   = $reflection->getProperty('navigationIcon');
+                $property->setAccessible(true);
+                $icon = $property->getValue();
+            } else {
+                $icon = null;
+            }
+
+            // If still no icon, try default dashboard icon
+            if ($icon === null && str_contains($page, 'Dashboard')) {
+                try {
+                    $icon = \Filament\Support\Icons\Heroicon::OutlinedHome;
+                } catch (\Throwable $e) {
+                    // Silently fail
+                }
+            }
         }
 
         if ($icon === null) {
@@ -673,7 +858,10 @@ class NavManager extends Model
         }
 
         if ($this->hasIcon()) {
-            $group->icon($this->icon);
+            $validatedIcon = $this->validateIcon($this->icon);
+            if ($validatedIcon) {
+                $group->icon($validatedIcon);
+            }
         }
 
         if ($this->badge) {
@@ -691,10 +879,28 @@ class NavManager extends Model
         $icon = $this->determineIcon($ancestorHasIcon);
 
         if ($icon) {
-            $item->icon($icon);
+            $validatedIcon = $this->validateIcon($icon);
+            if ($validatedIcon) {
+                $item->icon($validatedIcon);
+            }
         }
 
-        if ($this->badge) {
+        // Handle badge - real-time from Resource/Page if available, otherwise use database value
+        $badgeCallback = $this->getRealTimeBadgeCallback();
+        
+        if ($badgeCallback) {
+            // Use Closure to get badge in real-time
+            $item->badge(
+                $badgeCallback['badge'],
+                $badgeCallback['color'] ?? null
+            );
+            
+            // Support badge tooltip if Resource/Page provides it
+            if (isset($badgeCallback['tooltip']) && method_exists($item, 'badgeTooltip')) {
+                $item->badgeTooltip($badgeCallback['tooltip']);
+            }
+        } elseif ($this->badge) {
+            // Fallback to database badge
             $item->badge($this->badge, $this->badge_color ?: null);
         }
 
@@ -892,6 +1098,309 @@ class NavManager extends Model
         }
 
         return $hasChildren ? 'heroicon-o-rectangle-stack' : null;
+    }
+
+    /**
+     * Validate if an icon exists and return it, or return null if invalid.
+     * This prevents SvgNotFound exceptions when invalid icon names are stored in the database.
+     * 
+     * Handles incomplete icon names (e.g., 'cube-transparent') by trying multiple formats:
+     * - heroicon-o-{name} (outlined)
+     * - heroicon-m-{name} (medium)
+     * - heroicon-c-{name} (mini)
+     * - heroicon-s-{name} (solid)
+     *
+     * @param string|null $icon
+     * @return string|null
+     */
+    protected function validateIcon(?string $icon): ?string
+    {
+        if (blank($icon)) {
+            return null;
+        }
+
+        // If icon already has heroicon- prefix but missing variant (e.g., heroicon-cube-transparent)
+        // Try to fix it by trying common variants
+        if (Str::startsWith($icon, 'heroicon-') && !preg_match('/^heroicon-[ocms]-/', $icon)) {
+            $baseName = str_replace('heroicon-', '', $icon);
+            $variants = ['o-', 'm-', 'c-', 's-'];
+            
+            foreach ($variants as $variant) {
+                $testIcon = "heroicon-{$variant}{$baseName}";
+                if ($this->tryResolveIcon($testIcon)) {
+                    return $testIcon;
+                }
+            }
+            
+            // If no variant works, return null
+            if (config('app.debug')) {
+                Log::warning("Navigation icon format invalid (missing variant): {$icon}", [
+                    'menu_title' => $this->title,
+                    'menu_id'    => $this->id,
+                ]);
+            }
+            return null;
+        }
+
+        // If icon doesn't have heroicon- prefix, add it and try common variants
+        if (!Str::startsWith($icon, 'heroicon-')) {
+            $variants = ['o-', 'm-', 'c-', 's-'];
+            
+            foreach ($variants as $variant) {
+                $testIcon = "heroicon-{$variant}{$icon}";
+                if ($this->tryResolveIcon($testIcon)) {
+                    return $testIcon;
+                }
+            }
+            
+            // If no variant works, return null
+            if (config('app.debug')) {
+                Log::warning("Navigation icon not found (tried variants): {$icon}", [
+                    'menu_title' => $this->title,
+                    'menu_id'    => $this->id,
+                ]);
+            }
+            return null;
+        }
+
+        // Icon already has correct format, just validate it exists
+        if ($this->tryResolveIcon($icon)) {
+            return $icon;
+        }
+
+        // Icon doesn't exist
+        if (config('app.debug')) {
+            Log::warning("Navigation icon not found: {$icon}", [
+                'menu_title' => $this->title,
+                'menu_id'    => $this->id,
+            ]);
+        }
+        return null;
+    }
+
+    /**
+     * Try to resolve an icon and return true if it exists, false otherwise.
+     *
+     * @param string $icon
+     * @return bool
+     */
+    protected function tryResolveIcon(string $icon): bool
+    {
+        try {
+            if (function_exists('svg')) {
+                svg($icon);
+            } else {
+                $iconFactory = app(IconFactory::class);
+                $iconFactory->svg($icon);
+            }
+            return true;
+        } catch (\BladeUI\Icons\Exceptions\SvgNotFound $e) {
+            return false;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get real-time badge callback for Resource/Page types.
+     * Badge is fetched in real-time and not cached.
+     *
+     * @return array{badge: Closure, color?: Closure, tooltip?: Closure}|null
+     */
+    protected function getRealTimeBadgeCallback(): ?array
+    {
+        // Only for Resource and Page types
+        if ($this->type !== self::TYPE_RESOURCE && $this->type !== self::TYPE_PAGE) {
+            return null;
+        }
+
+        $target = $this->target;
+        
+        if (!$target || !class_exists($target)) {
+            return null;
+        }
+
+        // For Resource type
+        if ($this->type === self::TYPE_RESOURCE && is_subclass_of($target, FilamentResource::class)) {
+            return [
+                'badge' => function () use ($target): ?string {
+                    try {
+                        // Check if Resource has getNavigationBadge method
+                        if (method_exists($target, 'getNavigationBadge')) {
+                            $badge = $target::getNavigationBadge();
+                            if ($badge !== null) {
+                                return (string) $badge;
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        // Silently fail and fallback to database badge
+                        if (config('app.debug')) {
+                            Log::warning("Error getting real-time badge from Resource: {$target}", [
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
+                    
+                    // Fallback to database badge
+                    return $this->badge ?: null;
+                },
+                'color' => function () use ($target) {
+                    try {
+                        // Check if Resource has getNavigationBadgeColor method
+                        if (method_exists($target, 'getNavigationBadgeColor')) {
+                            $color = $target::getNavigationBadgeColor();
+                            if ($color !== null) {
+                                return $color; // Can be string or array
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        // Silently fail and fallback to database badge color
+                    }
+                    
+                    // Fallback to database badge color
+                    return $this->badge_color ?: null;
+                },
+                'tooltip' => function () use ($target) {
+                    try {
+                        // Check if Resource has getNavigationBadgeTooltip method
+                        if (method_exists($target, 'getNavigationBadgeTooltip')) {
+                            return $target::getNavigationBadgeTooltip();
+                        }
+                    } catch (\Throwable $e) {
+                        // Silently fail
+                    }
+                    
+                    return null;
+                },
+            ];
+        }
+
+        // For Page type
+        if ($this->type === self::TYPE_PAGE && is_subclass_of($target, FilamentPage::class)) {
+            return [
+                'badge' => function () use ($target): ?string {
+                    try {
+                        // Check if Page has getNavigationBadge method
+                        if (method_exists($target, 'getNavigationBadge')) {
+                            $badge = $target::getNavigationBadge();
+                            if ($badge !== null) {
+                                return (string) $badge;
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        // Silently fail and fallback to database badge
+                        if (config('app.debug')) {
+                            Log::warning("Error getting real-time badge from Page: {$target}", [
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
+                    
+                    // Fallback to database badge
+                    return $this->badge ?: null;
+                },
+                'color' => function () use ($target) {
+                    try {
+                        // Check if Page has getNavigationBadgeColor method
+                        if (method_exists($target, 'getNavigationBadgeColor')) {
+                            $color = $target::getNavigationBadgeColor();
+                            if ($color !== null) {
+                                return $color;
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        // Silently fail and fallback to database badge color
+                    }
+                    
+                    // Fallback to database badge color
+                    return $this->badge_color ?: null;
+                },
+                'tooltip' => function () use ($target) {
+                    try {
+                        // Check if Page has getNavigationBadgeTooltip method
+                        if (method_exists($target, 'getNavigationBadgeTooltip')) {
+                            return $target::getNavigationBadgeTooltip();
+                        }
+                    } catch (\Throwable $e) {
+                        // Silently fail
+                    }
+                    
+                    return null;
+                },
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Discover all classes in a directory, including those with isDiscovered = false.
+     * This is similar to Filament's discoverComponents but doesn't filter by isDiscovered.
+     *
+     * @param \Illuminate\Filesystem\Filesystem $filesystem
+     * @param string $directory
+     * @param string $namespace
+     * @param string $baseClass
+     * @return array<string>
+     */
+    protected static function discoverClassesInDirectory(
+        \Illuminate\Filesystem\Filesystem $filesystem,
+        string $directory,
+        string $namespace,
+        string $baseClass
+    ): array {
+        $classes = [];
+        
+        if (blank($directory) || blank($namespace)) {
+            return $classes;
+        }
+
+        if ((!$filesystem->exists($directory)) && (!\Illuminate\Support\Str::contains($directory, '*'))) {
+            return $classes;
+        }
+
+        $namespace = \Illuminate\Support\Str::of($namespace);
+
+        foreach ($filesystem->allFiles($directory) as $file) {
+            $variableNamespace = $namespace->contains('*') ? str_ireplace(
+                ['\\' . $namespace->before('*'), $namespace->after('*')],
+                ['', ''],
+                str_replace([DIRECTORY_SEPARATOR], ['\\'], (string) \Illuminate\Support\Str::of($file->getPath())->after(base_path())),
+            ) : null;
+
+            if (is_string($variableNamespace)) {
+                $variableNamespace = (string) \Illuminate\Support\Str::of($variableNamespace)->before('\\');
+            }
+
+            $class = (string) $namespace
+                ->append('\\', $file->getRelativePathname())
+                ->replace('*', $variableNamespace ?? '')
+                ->replace([DIRECTORY_SEPARATOR, '.php'], ['\\', '']);
+
+            if (!class_exists($class)) {
+                continue;
+            }
+
+            try {
+                $reflection = new \ReflectionClass($class);
+                
+                if ($reflection->isAbstract()) {
+                    continue;
+                }
+
+                if (!is_subclass_of($class, $baseClass)) {
+                    continue;
+                }
+
+                // Don't filter by isDiscovered - include all classes
+                $classes[] = $class;
+            } catch (\Throwable $e) {
+                // Skip invalid classes
+                continue;
+            }
+        }
+
+        return $classes;
     }
 }
 
