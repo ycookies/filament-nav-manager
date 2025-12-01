@@ -40,9 +40,7 @@ class SyncPanelCommand extends Command
             // Clear Laravel caches to avoid route not found errors
             $this->info('Clearing caches...');
             try {
-                $this->call('config:clear');
                 $this->call('route:clear');
-                $this->call('view:clear');
                 $this->call('route:cache');
                 $this->info('✓ Caches cleared successfully.');
             } catch (\Throwable $cacheError) {

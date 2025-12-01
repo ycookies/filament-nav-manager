@@ -54,7 +54,8 @@ return [
         'create'           => '添加导航菜单',
         'sync'             => '同步 Filament 导航菜单',
         'sync_description' => '这将同步所有 Filament 资源、页面和导航组到菜单数据库。已存在的菜单将被更新。',
+        'sync_complete_title'     => '同步完成',
         'sync_success'     => '成功同步 :count 个菜单项',
-        'sync_error'       => '同步菜单失败',
+        'sync_error'       => '同步导航菜单失败',
     ],
 ];

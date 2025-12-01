@@ -170,11 +170,22 @@ class NavManagersTable
                         ->after(function (Component $livewire) {
                             NavManager::flushNavigationCache();
                             $livewire->dispatch('refresh-sidebar');
+                            
+                            // Clear cached table records to refresh tree view after edit
+                            if (method_exists($livewire, 'flushCachedTableRecords')) {
+                                $livewire->flushCachedTableRecords();
+                            }
                         }),
+                    //DeleteAction::make(),
                     DeleteAction::make()
                         ->after(function (Component $livewire) {
                             NavManager::flushNavigationCache();
                             $livewire->dispatch('refresh-sidebar');
+                            
+                            // Clear cached table records to refresh tree view after deletion
+                            if (method_exists($livewire, 'flushCachedTableRecords')) {
+                                $livewire->flushCachedTableRecords();
+                            }
                         }),
                 ]),
             ]);

@@ -56,21 +56,24 @@ class ListNavManagers extends ListRecords
             NavManagerNavigationGenerator::flush($panel->getId());
 
             // Clear Laravel caches to avoid route not found errors
-            try {
-                Artisan::call('config:clear');
-                Artisan::call('route:clear');
-                Artisan::call('view:clear');
-                Artisan::call('route:cache');
-            } catch (\Throwable $cacheError) {
-                // Log cache clearing errors but don't fail the sync
-                Log::warning('Failed to clear caches after nav sync: ' . $cacheError->getMessage());
-            }
-
+            // Note: We skip view:clear to avoid $errors variable issues during re-render
+            // View cache is not critical and will be refreshed on next request
+            // try {
+            //     Artisan::call('route:clear');
+            //     Artisan::call('route:cache');
+            // } catch (\Throwable $cacheError) {
+            //     // Log cache clearing errors but don't fail the sync
+            //     // Log::warning('Failed to clear caches after nav sync: ' . $cacheError->getMessage());
+            // }
+            $this->dispatch('$refresh');
             Notification::make()
-                ->title(__('nav-manager::nav-manager.actions.sync_success') ?: 'Sync Complete')
+                ->title(__('nav-manager::nav-manager.actions.sync_complete_title') ?: 'Sync Complete')
                 ->body(__('nav-manager::nav-manager.actions.sync_success', ['count' => $syncedCount]) ?: "Successfully synced {$syncedCount} menu items")
                 ->success()
                 ->send();
+                
+            // Refresh the component to ensure everything is properly initialized
+            
         } catch (\Throwable $e) {
             Notification::make()
                 ->title(__('nav-manager::nav-manager.actions.sync_error') ?: 'Sync Error')

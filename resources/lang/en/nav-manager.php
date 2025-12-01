@@ -54,6 +54,7 @@ return [
         'create'           => 'Create Navigation Item',
         'sync'             => 'Sync Filament Nav Menu',
         'sync_description' => 'This will sync all Filament resources, pages and navigation groups to the menu database. Existing menus will be updated.',
+        'sync_complete_title'     => 'Sync Complete',
         'sync_success'     => 'Successfully synced :count menu items',
         'sync_error'       => 'Failed to sync menus',
     ],
