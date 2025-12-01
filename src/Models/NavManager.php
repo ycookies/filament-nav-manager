@@ -33,9 +33,9 @@ class NavManager extends Model
 
     protected $table = 'nav_manager';
 
-    protected $titleColumn = 'title';
-    protected $parentColumn = 'parent_id';
-    protected $orderColumn = 'order';
+    protected $titleColumn     = 'title';
+    protected $parentColumn    = 'parent_id';
+    protected $orderColumn     = 'order';
     protected $defaultParentId = 0;
     
     protected $fillable = [
