@@ -36,10 +36,7 @@ class NavManagerForm
 
                                 Select::make('parent_id')
                                     ->label(__('nav-manager::nav-manager.form.parent_menu') ?: 'Parent Menu')
-                                    ->options(fn (callable $get, ?NavManager $record): array => NavManager::parentSelectOptions(
-                                        $get('panel') ?? Filament::getCurrentPanel()?->getId(),
-                                        $record?->getKey(),
-                                    ))
+                                    ->options(NavManager::SelectOptions())
                                     ->default(0)
                                     ->searchable()
                                     ->preload()

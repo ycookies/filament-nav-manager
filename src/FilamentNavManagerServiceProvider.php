@@ -238,8 +238,8 @@ class FilamentNavManagerServiceProvider extends PackageServiceProvider
                 'recordVisibleUsing' => null,
                 'isRootUsing'        => null,
                 'reorderLabels'      => [
-                    'enable'  => '启用重新排序',
-                    'disable' => '禁用重新排序',
+                    'enable'  => __('nav-manager::nav-manager.tree.reorder.enable'),
+                    'disable' => __('nav-manager::nav-manager.tree.reorder.disable'),
                 ],
             ], $options);
 

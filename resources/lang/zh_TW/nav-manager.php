@@ -58,4 +58,11 @@ return [
         'sync_success'     => '成功同步 :count 個選單項目',
         'sync_error'       => '同步選單失敗',
     ],
+
+    'tree' => [
+        'reorder' => [
+            'enable'  => '啟用重新排序',
+            'disable' => '禁用重新排序',
+        ],
+    ],
 ];

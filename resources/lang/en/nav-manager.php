@@ -58,4 +58,11 @@ return [
         'sync_success'     => 'Successfully synced :count menu items',
         'sync_error'       => 'Failed to sync menus',
     ],
+
+    'tree' => [
+        'reorder' => [
+            'enable'  => 'Enable Reordering',
+            'disable' => 'Disable Reordering',
+        ],
+    ],
 ];

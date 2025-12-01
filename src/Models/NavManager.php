@@ -20,9 +20,11 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use function Filament\Support\original_request;
-
+use Ycookies\FilamentNavManager\Models\Traits\ModelOptionsTree;
 class NavManager extends Model
 {
+    use ModelOptionsTree;
+    
     public const TYPE_GROUP    = 'group';
     public const TYPE_RESOURCE = 'resource';
     public const TYPE_PAGE     = 'page';
@@ -31,6 +33,11 @@ class NavManager extends Model
 
     protected $table = 'nav_manager';
 
+    protected $titleColumn = 'title';
+    protected $parentColumn = 'parent_id';
+    protected $orderColumn = 'order';
+    protected $defaultParentId = 0;
+    
     protected $fillable = [
         'parent_id',
         'panel',
