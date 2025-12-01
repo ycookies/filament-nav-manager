@@ -63,6 +63,20 @@ class NavManager extends Model
     ];
 
     /**
+     * Boot the model and register model event callbacks.
+     */
+    protected static function booted(): void
+    {
+        static::deleting(function (NavManager $nav): void {
+            // When deleting a menu item, also delete all of its child items (recursively).
+            // We delete direct children here; each child's own `deleting` event will take care of its descendants.
+            static::where('parent_id', $nav->getKey())->get()->each(function (NavManager $child): void {
+                $child->delete();
+            });
+        });
+    }
+
+    /**
      * Get the parent menu.
      */
     public function parent(): BelongsTo
