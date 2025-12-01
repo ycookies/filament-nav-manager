@@ -34,7 +34,7 @@ trait ModelOptionsTree
      */
     public static function selectOptions(\Closure $closure = null, $rootText = null, $orderColumn = null)
     {
-        $rootText = $rootText ?: '顶级';
+        $rootText = $rootText ?: __('nav-manager::nav-manager.tree.root');
 
         $instance = new static();
         if ($orderColumn) {
@@ -163,7 +163,7 @@ trait ModelOptionsTree
         $parentColumn = $this->getParentColumn();
 
         for ($i = $currentIndex + 1; $i < count($nodes); $i++) {
-            $node = $nodes[$i];
+            $node         = $nodes[$i];
             $nodeParentId = $node[$parentColumn] ?? $this->getDefaultParentId();
             
             // Normalize parent ID (handle null, 0, -1)
@@ -205,12 +205,12 @@ trait ModelOptionsTree
         }
 
         $parentColumn = $this->getParentColumn();
-        $titleColumn = $this->getTitleColumn();
-        $keyName = $this->getKeyName();
-        $orderColumn = $this->getOrderColumn();
+        $titleColumn  = $this->getTitleColumn();
+        $keyName      = $this->getKeyName();
+        $orderColumn  = $this->getOrderColumn();
 
         // Filter nodes by parent ID
-        $children = [];
+        $children        = [];
         $defaultParentId = $this->getDefaultParentId();
         
         foreach ($nodes as $index => $node) {
@@ -229,7 +229,7 @@ trait ModelOptionsTree
 
             if ($nodeParentId == $targetParentId) {
                 $children[] = [
-                    'node' => $node,
+                    'node'  => $node,
                     'index' => $index,
                 ];
             }
@@ -253,8 +253,8 @@ trait ModelOptionsTree
 
         // Process each child
         foreach ($children as $childIndex => $childData) {
-            $node = $childData['node'];
-            $index = $childData['index'];
+            $node   = $childData['node'];
+            $index  = $childData['index'];
             $nodeId = $node[$keyName];
 
             // Determine if this is the last sibling
@@ -266,7 +266,7 @@ trait ModelOptionsTree
                 $displayText = $node[$titleColumn];
             } else {
                 // Child level - add tree character
-                $treeChar = $isLastSibling ? $l : $d;
+                $treeChar    = $isLastSibling ? $l : $d;
                 $displayText = $prefix . $treeChar . $space . $node[$titleColumn];
             }
 
