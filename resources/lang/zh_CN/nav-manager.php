@@ -60,6 +60,7 @@ return [
     ],
 
     'tree' => [
+        'root'    => '顶级',
         'reorder' => [
             'enable'  => '启用重新排序',
             'disable' => '禁用重新排序',
